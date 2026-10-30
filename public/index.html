@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DCloud App 本地云打包</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f3f5f7; color: #2c3e50; min-height: 100vh; }
+  .container { max-width: 960px; margin: 0 auto; padding: 24px 16px 60px; }
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; }
+  h1 { font-size: 22px; }
+  header .hint { color: #8a94a6; font-size: 13px; }
+  .banner { background: #fff7e6; border: 1px solid #ffd591; color: #ad6800; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; line-height: 1.7; display: none; }
+  .banner code { background: rgba(0,0,0,.06); padding: 1px 6px; border-radius: 4px; font-size: 12px; word-break: break-all; }
+  .card { background: #fff; border-radius: 10px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 20px; }
+  .card h2 { font-size: 15px; margin-bottom: 14px; color: #344563; }
+  .form-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  label { font-size: 13px; color: #5e6c84; }
+  select, .btn { height: 36px; border-radius: 6px; font-size: 14px; }
+  select { border: 1px solid #dfe1e6; padding: 0 10px; background: #fff; }
+  .file-box { flex: 1; min-width: 220px; border: 1.5px dashed #c1c7d0; border-radius: 8px; padding: 10px 14px; font-size: 13px; color: #5e6c84; cursor: pointer; transition: border-color .15s; }
+  .file-box:hover, .file-box.drag { border-color: #4c9aff; color: #4c9aff; }
+  .file-box input { display: none; }
+  .btn { border: none; background: #0052cc; color: #fff; padding: 0 22px; cursor: pointer; }
+  .btn:disabled { background: #a5adba; cursor: not-allowed; }
+  .btn.sm { height: 28px; padding: 0 12px; font-size: 12px; border-radius: 5px; }
+  .btn.ghost { background: #ebecf0; color: #42526e; }
+  .progress { height: 6px; background: #ebecf0; border-radius: 3px; margin-top: 12px; overflow: hidden; display: none; }
+  .progress i { display: block; height: 100%; width: 0; background: #0052cc; transition: width .2s; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #ebecf0; white-space: nowrap; }
+  th { color: #6b778c; font-weight: 500; font-size: 12px; }
+  td.name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; }
+  .badge.queued { background: #ebecf0; color: #42526e; }
+  .badge.preparing, .badge.building { background: #deebff; color: #0747a6; }
+  .badge.building::after { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #0747a6; margin-left: 5px; animation: blink 1s infinite; }
+  .badge.success { background: #e3fcef; color: #006644; }
+  .badge.failed { background: #ffebe6; color: #bf2600; }
+  @keyframes blink { 50% { opacity: .15; } }
+  .ops a, .ops button { margin-right: 8px; }
+  .empty { text-align: center; color: #97a0af; padding: 30px 0; font-size: 13px; }
+  .log-mask { position: fixed; inset: 0; background: rgba(9,30,66,.5); display: none; align-items: center; justify-content: center; z-index: 10; }
+  .log-box { background: #fff; width: min(860px, 92vw); max-height: 82vh; border-radius: 10px; display: flex; flex-direction: column; overflow: hidden; }
+  .log-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #ebecf0; font-size: 14px; }
+  .log-box pre { flex: 1; overflow: auto; padding: 14px 16px; font-size: 12px; line-height: 1.6; background: #172b4d; color: #d6e0f0; white-space: pre-wrap; word-break: break-all; }
+  .msg { font-size: 12px; color: #6b778c; margin-top: 2px; white-space: normal; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>DCloud App 云端打包</h1>
+    <span class="hint">上传本地打包资源 → 自动构建 → 下载 APK</span>
+  </header>
+
+  <div class="banner" id="sdkBanner"></div>
+
+  <div class="card">
+    <h2>上传资源包</h2>
+    <div class="form-row">
+      <label class="file-box" id="fileBox">
+        <input type="file" id="fileInput" accept=".zip">
+        <span id="fileName">点击选择或拖拽 ZIP 文件到此处</span>
+      </label>
+      <label>资源类型
+        <select id="typeSel">
+          <option value="auto">自动识别</option>
+          <option value="hbx">HBuilderX 本地打包资源</option>
+          <option value="cli">CLI 构建资源</option>
+          <option value="h5plus">5+App 项目</option>
+        </select>
+      </label>
+      <label>构建类型
+        <select id="buildTypeSel">
+          <option value="debug">Debug</option>
+          <option value="release">Release</option>
+        </select>
+      </label>
+      <button class="btn" id="uploadBtn">开始构建</button>
+    </div>
+    <div class="progress" id="progress"><i></i></div>
+  </div>
+
+  <div class="card">
+    <h2>构建任务</h2>
+    <table>
+      <thead>
+        <tr><th>时间</th><th>文件</th><th>类型</th><th>appid</th><th>构建</th><th>状态</th><th>操作</th></tr>
+      </thead>
+      <tbody id="taskBody"><tr><td colspan="7" class="empty">暂无任务</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="log-mask" id="logMask">
+  <div class="log-box">
+    <div class="log-head"><span id="logTitle">构建日志</span><button class="btn sm ghost" onclick="closeLog()">关闭</button></div>
+    <pre id="logContent"></pre>
+  </div>
+</div>
+
+<script>
+const TYPE_NAMES = { hbx: 'HBuilderX 资源', cli: 'CLI 构建', h5plus: '5+App 项目' };
+const STATUS_NAMES = { queued: '排队中', preparing: '准备中', building: '构建中', success: '构建成功', failed: '构建失败' };
+const $ = (id) => document.getElementById(id);
+let currentLogTask = null;
+
+// SDK 状态
+fetch('/api/meta').then(r => r.json()).then(meta => {
+  if (!meta.sdkReady) {
+    const b = $('sdkBanner');
+    b.style.display = 'block';
+    b.innerHTML = '⚠️ 尚未配置 DCloud Android 离线 SDK,构建任务将会失败。<br>' +
+      '请将离线 SDK 中的 Android 工程(含 <code>gradlew</code>)放到 <code>' + meta.sdkPath + '</code>' +
+      ',或设置环境变量 <code>DCLOUD_SDK_ANDROID</code> 后重启服务。';
+  }
+});
+
+// 文件选择 / 拖拽
+const fileInput = $('fileInput'), fileBox = $('fileBox'), fileName = $('fileName');
+fileInput.addEventListener('change', () => {
+  fileName.textContent = fileInput.files[0] ? fileInput.files[0].name + ' (' + fmtSize(fileInput.files[0].size) + ')' : '点击选择或拖拽 ZIP 文件到此处';
+});
+['dragover', 'dragenter'].forEach(ev => fileBox.addEventListener(ev, e => { e.preventDefault(); fileBox.classList.add('drag'); }));
+['dragleave', 'drop'].forEach(ev => fileBox.addEventListener(ev, e => { e.preventDefault(); fileBox.classList.remove('drag'); }));
+fileBox.addEventListener('drop', e => {
+  if (e.dataTransfer.files.length) { fileInput.files = e.dataTransfer.files; fileInput.dispatchEvent(new Event('change')); }
+});
+
+// 上传(带进度)
+$('uploadBtn').addEventListener('click', () => {
+  const file = fileInput.files[0];
+  if (!file) return alert('请先选择 ZIP 文件');
+  if (!/\.zip$/i.test(file.name)) return alert('仅支持 .zip 文件');
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('type', $('typeSel').value);
+  fd.append('buildType', $('buildTypeSel').value);
+  const xhr = new XMLHttpRequest();
+  const bar = $('progress'), fill = bar.querySelector('i');
+  bar.style.display = 'block'; fill.style.width = '0';
+  $('uploadBtn').disabled = true;
+  xhr.upload.addEventListener('progress', e => { if (e.lengthComputable) fill.style.width = (e.loaded / e.total * 100) + '%'; });
+  xhr.onload = () => {
+    $('uploadBtn').disabled = false;
+    setTimeout(() => { bar.style.display = 'none'; }, 600);
+    if (xhr.status === 201) {
+      fileInput.value = ''; fileName.textContent = '点击选择或拖拽 ZIP 文件到此处';
+      loadTasks();
+    } else {
+      try { alert('上传失败: ' + JSON.parse(xhr.responseText).error); } catch { alert('上传失败(' + xhr.status + ')'); }
+    }
+  };
+  xhr.onerror = () => { $('uploadBtn').disabled = false; alert('网络错误,上传失败'); };
+  xhr.open('POST', '/api/upload');
+  xhr.send(fd);
+});
+
+// 任务列表
+async function loadTasks() {
+  let tasks;
+  try { tasks = await (await fetch('/api/tasks')).json(); } catch { return; }
+  const body = $('taskBody');
+  if (!tasks.length) { body.innerHTML = '<tr><td colspan="7" class="empty">暂无任务</td></tr>'; return; }
+  body.innerHTML = tasks.map(t => {
+    const time = new Date(t.createdAt).toLocaleString('zh-CN', { hour12: false });
+    const type = t.type ? (TYPE_NAMES[t.type] || t.type) : (t.typeOverride === 'auto' ? '自动识别' : TYPE_NAMES[t.typeOverride]);
+    let ops = `<button class="btn sm ghost" onclick="showLog('${t.id}')">日志</button>`;
+    if (t.status === 'success') ops += `<a href="/api/tasks/${t.id}/download"><button class="btn sm">下载 APK</button></a>`;
+    return `<tr>
+      <td>${time}</td>
+      <td class="name" title="${esc(t.originalName)}">${esc(t.originalName)}<div class="msg">${esc(t.message || '')}</div></td>
+      <td>${type}</td>
+      <td>${esc(t.appid || '-')}</td>
+      <td>${t.buildType}</td>
+      <td><span class="badge ${t.status}">${STATUS_NAMES[t.status] || t.status}</span></td>
+      <td class="ops">${ops}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function showLog(id) {
+  currentLogTask = id;
+  $('logTitle').textContent = '构建日志 - ' + id;
+  $('logMask').style.display = 'flex';
+  await refreshLog();
+}
+async function refreshLog() {
+  if (!currentLogTask) return;
+  try {
+    const text = await (await fetch('/api/tasks/' + currentLogTask + '/log')).text();
+    const pre = $('logContent');
+    const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;
+    pre.textContent = text;
+    if (atBottom) pre.scrollTop = pre.scrollHeight;
+  } catch {}
+}
+function closeLog() { currentLogTask = null; $('logMask').style.display = 'none'; }
+$('logMask').addEventListener('click', e => { if (e.target === $('logMask')) closeLog(); });
+
+function fmtSize(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : (n / 1024).toFixed(0) + ' KB'; }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+loadTasks();
+setInterval(() => { loadTasks(); if (currentLogTask) refreshLog(); }, 3000);
+</script>
+</body>
+</html>
