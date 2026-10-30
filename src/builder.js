@@ -137,7 +137,21 @@ async function runTask(taskId) {
     log.line('失败: ' + e.message);
     store.update(taskId, { status: 'failed', message: e.message, finishedAt: Date.now() });
   } finally {
+    cleanupIntermediates(tdir, log);
+    log.line('已清理中间产物,仅保留构建结果与日志');
     log.stream.end();
+  }
+}
+
+/** 删除任务目录中的中间产物(解压资源、上传原包、SDK 工程副本),只保留 artifact 与 build.log */
+function cleanupIntermediates(tdir, log) {
+  for (const name of ['src', 'src.zip', 'project']) {
+    const target = path.join(tdir, name);
+    try {
+      fs.rmSync(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+    } catch (e) {
+      log.line(`警告: 清理 ${name} 失败: ${e.message}`);
+    }
   }
 }
 
