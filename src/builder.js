@@ -1,4 +1,5 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const store = require('./store');
@@ -13,6 +14,18 @@ const TYPE_NAMES = {
 
 const queue = [];
 let running = false;
+
+/** 构建机器信息(进程启动时采集一次),用于任务列表展示 */
+const MACHINE_INFO = (() => {
+  const cpus = os.cpus() || [];
+  return {
+    host: os.hostname(),
+    platform: `${os.platform()}-${os.arch()}`,
+    cpu: (cpus[0] && cpus[0].model ? cpus[0].model : '').replace(/\s+/g, ' ').trim(),
+    cores: cpus.length,
+    memGb: Math.round(os.totalmem() / 1024 / 1024 / 1024),
+  };
+})();
 
 function enqueue(taskId) {
   queue.push(taskId);
@@ -47,8 +60,9 @@ async function runTask(taskId) {
   const log = createLogger(task.logPath);
   try {
     // 1. 解压
-    store.update(taskId, { status: 'preparing', message: '解压资源包...' });
+    store.update(taskId, { status: 'preparing', message: '解压资源包...', machine: MACHINE_INFO });
     log.line(`任务 ${taskId} 开始,文件: ${task.originalName}`);
+    log.line(`构建机器: ${MACHINE_INFO.host} (${MACHINE_INFO.platform}, ${MACHINE_INFO.cores} 核, ${MACHINE_INFO.memGb}GB) ${MACHINE_INFO.cpu}`);
     const extractDir = path.join(tdir, 'src');
     await extractZip(path.join(tdir, 'src.zip'), extractDir);
     log.line('解压完成');
@@ -87,6 +101,12 @@ async function runTask(taskId) {
     });
 
     // 4. 替换 App 资源: <module>/src/main/assets/apps/<appid>/www
+    // SDK 工程自带的 local.properties 可能指向宿主机 SDK 路径,容器内需改为容器内的 ANDROID_HOME
+    const sdkRoot = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
+    if (sdkRoot) {
+      fs.writeFileSync(path.join(projDir, 'local.properties'), `sdk.dir=${sdkRoot}\n`);
+      log.line(`local.properties -> sdk.dir=${sdkRoot}`);
+    }
     const moduleName = resolveAppModule(projDir);
     log.line(`App 模块: ${moduleName}`);
     const assetsDir = path.join(projDir, moduleName, 'src', 'main', 'assets');
@@ -116,20 +136,23 @@ async function runTask(taskId) {
     if (result.error) throw new Error('Gradle 启动失败: ' + result.error);
     if (result.code !== 0) throw new Error(`Gradle 构建失败(exit ${result.code}),详见构建日志`);
 
-    // 7. 收集 APK
+    // 7. 收集 APK(落盘文件名加日期时间便于在宿主机区分,下载时仍用原始文件名)
     const apk = findApk(projDir, moduleName);
     if (!apk) throw new Error('构建成功但未找到 APK 产物');
     const artifactDir = path.join(tdir, 'artifact');
     fs.mkdirSync(artifactDir, { recursive: true });
-    const apkPath = path.join(artifactDir, path.basename(apk));
+    const downloadName = path.basename(apk);
+    const apkName = `${path.basename(apk, '.apk')}-${buildStamp()}.apk`;
+    const apkPath = path.join(artifactDir, apkName);
     fs.copyFileSync(apk, apkPath);
-    log.line(`APK 产出: ${path.basename(apk)} (${(fs.statSync(apkPath).size / 1024 / 1024).toFixed(1)} MB)`);
+    log.line(`APK 产出: ${apkName} (${(fs.statSync(apkPath).size / 1024 / 1024).toFixed(1)} MB)`);
 
     store.update(taskId, {
       status: 'success',
       message: '构建成功',
       apkPath,
-      apkName: path.basename(apk),
+      apkName,
+      downloadName,
       finishedAt: Date.now(),
     });
     log.line('任务完成');
@@ -141,6 +164,12 @@ async function runTask(taskId) {
     log.line('已清理中间产物,仅保留构建结果与日志');
     log.stream.end();
   }
+}
+
+/** 生成 YYYYMMDD-HHmmss 形式的构建时间戳,用于 APK 文件名 */
+function buildStamp(d = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
 /** 删除任务目录中的中间产物(解压资源、上传原包、SDK 工程副本),只保留 artifact 与 build.log */

@@ -1,0 +1,30 @@
+services:
+  node-service:
+    build:
+      context: .
+    container_name: dcloud-build-pro
+    # 容器默认主机名是随机 ID,固定为可读名称,方便在任务列表里展示构建机器
+    hostname: dcloud-build
+    # Android SDK 的 build-tools 只提供 linux-x86_64,Apple Silicon 上需通过模拟运行
+    platform: linux/amd64
+    restart: unless-stopped
+
+    ports:
+      - "8848:3000"
+
+    volumes:
+      - ./tasks:/app/tasks
+      # DCloud Android 离线 SDK 工程(只读挂载,构建时复制到任务目录再修改)
+      - "${DCLOUD_SDK_ANDROID:-/Users/fanyu/code/HBuilderX/Android-uni-app-SDK@5.26/HBuilder-Integrate-AS}:/app/sdk/android:ro"
+      # 复用 Gradle 缓存,避免每次构建重复下载发行版与依赖
+      - gradle-cache:/root/.gradle
+
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DCLOUD_SDK_ANDROID=/app/sdk/android
+      # 容器默认 UTC,统一为东八区,保证 APK 文件名和日志时间与本地一致
+      - TZ=Asia/Shanghai
+
+volumes:
+  gradle-cache:

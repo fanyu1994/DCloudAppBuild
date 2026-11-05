@@ -14,6 +14,28 @@ const upload = multer({
 
 const VALID_TYPES = new Set(['auto', 'hbx', 'cli', 'h5plus']);
 
+/** 从 User-Agent 粗略识别操作系统 */
+function detectOs(ua = '') {
+  if (/Windows NT 10/i.test(ua)) return 'Windows 10/11';
+  if (/Windows NT 6\.3/i.test(ua)) return 'Windows 8.1';
+  if (/Windows NT 6\.1/i.test(ua)) return 'Windows 7';
+  if (/Windows/i.test(ua)) return 'Windows';
+  if (/iPhone|iPad|iPod/i.test(ua)) return 'iOS';
+  if (/Android/i.test(ua)) return 'Android';
+  if (/Mac OS X/i.test(ua)) return 'macOS';
+  if (/CrOS/i.test(ua)) return 'ChromeOS';
+  if (/Linux/i.test(ua)) return 'Linux';
+  if (/curl|wget|node|python/i.test(ua)) return '命令行';
+  return '未知';
+}
+
+/** 取客户端 IP(兼容反向代理的 x-forwarded-for) */
+function clientIp(req) {
+  const fwd = req.headers['x-forwarded-for'];
+  const raw = fwd ? String(fwd).split(',')[0].trim() : req.ip || '';
+  return raw.replace(/^::ffff:/, '');
+}
+
 function publicView(t) {
   return {
     id: t.id,
@@ -26,6 +48,8 @@ function publicView(t) {
     status: t.status,
     message: t.message,
     apkName: t.apkName,
+    machine: t.machine,
+    uploader: t.uploader,
     createdAt: t.createdAt,
     finishedAt: t.finishedAt,
   };
@@ -49,9 +73,23 @@ router.post('/upload', upload.single('file'), (req, res) => {
     size: req.file.size,
     typeOverride,
     buildType,
+    uploader: {
+      ip: clientIp(req),
+      os: detectOs(req.headers['user-agent'] || ''),
+      ua: req.headers['user-agent'] || '',
+    },
     message: '排队等待构建...',
   });
-  fs.renameSync(req.file.path, path.join(task.dir, 'src.zip'));
+  // 用复制+删除代替 rename:uploads 与 tasks 可能是不同挂载点(容器内跨设备时会 EXDEV)
+  const target = path.join(task.dir, 'src.zip');
+  try {
+    fs.copyFileSync(req.file.path, target);
+  } catch (e) {
+    fs.unlink(req.file.path, () => {});
+    store.update(task.id, { status: 'failed', message: '保存资源包失败: ' + e.message });
+    return res.status(500).json({ error: '保存资源包失败: ' + e.message });
+  }
+  cleanup();
   builder.enqueue(task.id);
   res.status(201).json(publicView(store.get(task.id)));
 });
@@ -93,7 +131,7 @@ router.get('/tasks/:id/download', (req, res) => {
   if (!t || !t.apkPath || !fs.existsSync(t.apkPath)) {
     return res.status(404).json({ error: 'APK 不存在或尚未构建成功' });
   }
-  res.download(t.apkPath, t.apkName || 'app.apk');
+  res.download(t.apkPath, t.downloadName || t.apkName || 'app.apk');
 });
 
 // 服务信息(SDK 是否就绪)
