@@ -14,6 +14,8 @@ services:
 
     volumes:
       - ./tasks:/app/tasks
+      # 前端静态文件直接挂载,改完 docker compose restart 即生效,无需重新构建镜像
+      - ./public:/app/public:ro
       # DCloud Android 离线 SDK 工程(只读挂载,构建时复制到任务目录再修改)
       - "${DCLOUD_SDK_ANDROID:-/Users/fanyu/code/HBuilderX/Android-uni-app-SDK@5.26/HBuilder-Integrate-AS}:/app/sdk/android:ro"
       # 复用 Gradle 缓存,避免每次构建重复下载发行版与依赖
