@@ -12,6 +12,11 @@ services:
     ports:
       - "8848:3000"
 
+    # 容器内的 adb 客户端通过 TCP 连接宿主机 adb 服务(host-gateway 指向宿主机),
+    # 从而实现「安装 APK」到 USB 调试设备;宿主机需运行: adb -a -P 5037 nodaemon server
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
     volumes:
       - ./tasks:/app/tasks
       # 前端静态文件直接挂载,改完 docker compose restart 即生效,无需重新构建镜像

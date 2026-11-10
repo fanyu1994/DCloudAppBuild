@@ -55,6 +55,8 @@
   <header>
     <h1>DCloud App 云端打包</h1>
     <span class="hint">上传本地打包资源 → 自动构建 → 下载 APK</span>
+    <span style="flex:1"></span>
+    <button class="btn sm ghost" onclick="$('adbMask').style.display='flex'">无线连接手机</button>
   </header>
 
   <div class="banner" id="sdkBanner"></div>
@@ -93,6 +95,28 @@
       </thead>
       <tbody id="taskBody"><tr><td colspan="8" class="empty">暂无任务</td></tr></tbody>
     </table>
+  </div>
+</div>
+
+<div class="log-mask" id="adbMask">
+  <div class="log-box" style="max-width:520px">
+    <div class="log-head"><span>无线连接手机(Android 11+)</span><button class="btn sm ghost" onclick="$('adbMask').style.display='none'">关闭</button></div>
+    <div style="padding:16px;font-size:13px;line-height:1.9;color:#42526e">
+      <div>手机操作:<b>设置 → 开发者选项 → 无线调试</b> 开启,手机需与本机在同一局域网。</div>
+      <div style="margin:10px 0 4px"><b>第 1 步</b>:手机点「使用配对码配对设备」,把显示的地址和 6 位配对码填到下面:</div>
+      <div class="form-row">
+        <input id="pairAddr" placeholder="配对地址,如 192.168.1.5:37123" style="flex:2">
+        <input id="pairCode" placeholder="配对码" maxlength="6" style="flex:1">
+        <button class="btn sm" id="pairBtn" onclick="adbPair()">配对</button>
+      </div>
+      <div style="margin:12px 0 4px"><b>第 2 步</b>:回到「无线调试」首页,把「IP 地址和端口」填到下面(端口与配对端口不同):</div>
+      <div class="form-row">
+        <input id="connAddr" placeholder="连接地址,如 192.168.1.5:43215" style="flex:2">
+        <button class="btn sm" id="connBtn" onclick="adbConnect()">连接</button>
+      </div>
+      <div class="msg" id="adbMsg"></div>
+      <style>#adbMask input { height:32px;border:1px solid #dfe1e6;border-radius:6px;padding:0 10px;font-size:13px; }</style>
+    </div>
   </div>
 </div>
 
@@ -170,7 +194,10 @@ async function loadTasks() {
     const time = new Date(t.createdAt).toLocaleString('zh-CN', { hour12: false });
     const type = t.type ? (TYPE_NAMES[t.type] || t.type) : (t.typeOverride === 'auto' ? '自动识别' : TYPE_NAMES[t.typeOverride]);
     let ops = `<button class="btn sm ghost" onclick="showLog('${t.id}')">日志</button>`;
-    if (t.status === 'success') ops += `<a href="/api/tasks/${t.id}/download"><button class="btn sm">下载 APK</button></a>`;
+    if (t.status === 'success') {
+      ops += `<a href="/api/tasks/${t.id}/download"><button class="btn sm">下载 APK</button></a>`;
+      ops += `<button class="btn sm ghost" data-install="${t.id}" onclick="installApk('${t.id}', this)">安装</button>`;
+    }
     const u = t.uploader;
     const uploader = u
       ? `<span class="machine" title="${esc((u.ua || '') + ' · ' + (u.ip || ''))}">${esc(u.ip || '-')}<div class="msg">${esc(u.os || '未知')}</div></span>`
@@ -206,6 +233,75 @@ async function refreshLog() {
 }
 function closeLog() { currentLogTask = null; $('logMask').style.display = 'none'; }
 $('logMask').addEventListener('click', e => { if (e.target === $('logMask')) closeLog(); });
+
+// 安装 APK 到 USB 调试设备(adb 服务跑在宿主机,容器通过 TCP 连接)
+async function adbPair() {
+  const btn = $('pairBtn'), msg = $('adbMsg');
+  btn.disabled = true; msg.textContent = '配对中...';
+  try {
+    const r = await (await fetch('/api/adb/pair', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ addr: $('pairAddr').value.trim(), code: $('pairCode').value.trim() }),
+    })).json();
+    if (r.ok) {
+      msg.textContent = '配对成功!请完成第 2 步连接。';
+      const host = $('pairAddr').value.trim().split(':')[0];
+      if (host && !$('connAddr').value) $('connAddr').value = host + ':';
+    } else msg.textContent = '配对失败: ' + (r.error || '');
+  } catch (e) { msg.textContent = '配对失败: ' + e.message; }
+  btn.disabled = false;
+}
+async function adbConnect() {
+  const btn = $('connBtn'), msg = $('adbMsg');
+  btn.disabled = true; msg.textContent = '连接中...';
+  try {
+    const r = await (await fetch('/api/adb/connect', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ addr: $('connAddr').value.trim() }),
+    })).json();
+    if (r.ok) {
+      msg.textContent = '连接成功!现在可以在任务的「安装」按钮里选择这台手机了。';
+      setTimeout(() => { $('adbMask').style.display = 'none'; }, 1500);
+    } else msg.textContent = '连接失败: ' + (r.error || '');
+  } catch (e) { msg.textContent = '连接失败: ' + e.message; }
+  btn.disabled = false;
+}
+
+// 安装 APK 到 USB 调试设备(adb 服务跑在宿主机,容器通过 TCP 连接)
+async function installApk(id, btn) {
+  const label = btn.textContent;
+  btn.disabled = true;
+  try {
+    btn.textContent = '检测设备...';
+    const devRes = await (await fetch('/api/adb/devices')).json();
+    if (devRes.error) throw new Error(devRes.error);
+    const devices = devRes.devices || [];
+    if (!devices.length) {
+      alert('未检测到设备。请确认:\n1. USB 连接:手机已插到构建机并开启调试、已授权\n2. 或使用右上角「无线连接手机」先配对连接(Android 11+)');
+      return;
+    }
+    let serial = devices[0];
+    if (devices.length > 1) {
+      const pick = prompt('检测到多台设备,输入序号选择:\n' + devices.map((d, i) => `${i + 1}. ${d}`).join('\n'), '1');
+      if (pick === null) return;
+      serial = devices[parseInt(pick, 10) - 1];
+      if (!serial) return alert('序号无效');
+    }
+    btn.textContent = '安装中...';
+    const res = await (await fetch('/api/tasks/' + id + '/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serial }),
+    })).json();
+    if (res.ok) alert('安装成功: ' + serial);
+    else alert('安装失败: ' + (res.error || '未知错误'));
+  } catch (e) {
+    alert('安装失败: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
 
 function fmtSize(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : (n / 1024).toFixed(0) + ' KB'; }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }

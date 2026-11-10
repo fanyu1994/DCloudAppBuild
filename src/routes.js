@@ -4,6 +4,7 @@ const express = require('express');
 const multer = require('multer');
 const store = require('./store');
 const builder = require('./builder');
+const adb = require('./adb');
 const { UPLOAD_DIR, SDK_ANDROID_DIR, MAX_UPLOAD_MB, LOG_TAIL_BYTES } = require('./config');
 
 const router = express.Router();
@@ -132,6 +133,59 @@ router.get('/tasks/:id/download', (req, res) => {
     return res.status(404).json({ error: 'APK 不存在或尚未构建成功' });
   }
   res.download(t.apkPath, t.downloadName || t.apkName || 'app.apk');
+});
+
+// USB 调试设备列表(经宿主机 adb 服务)
+router.get('/adb/devices', async (req, res) => {
+  try {
+    res.json({ devices: await adb.listDevices() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+const ADDR_RE = /^[\w.-]+:\d{1,5}$/;
+
+// 无线调试配对(Android 11+)
+router.post('/adb/pair', async (req, res) => {
+  const { addr, code } = req.body || {};
+  if (!ADDR_RE.test(addr || '')) return res.status(400).json({ error: '配对地址格式应为 ip:端口' });
+  if (!/^\d{6}$/.test(String(code || '').trim())) return res.status(400).json({ error: '配对码应为 6 位数字' });
+  try {
+    const out = await adb.pairDevice(addr, code);
+    if (/success/i.test(out)) res.json({ ok: true, output: out });
+    else res.status(500).json({ error: out || '配对失败' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 配对后连接设备
+router.post('/adb/connect', async (req, res) => {
+  const { addr } = req.body || {};
+  if (!ADDR_RE.test(addr || '')) return res.status(400).json({ error: '连接地址格式应为 ip:端口' });
+  try {
+    const out = await adb.connectDevice(addr);
+    if (/connected|already connected/i.test(out)) res.json({ ok: true, output: out });
+    else res.status(500).json({ error: out || '连接失败' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 安装 APK 到 USB 调试设备
+router.post('/tasks/:id/install', async (req, res) => {
+  const t = store.get(req.params.id);
+  if (!t || !t.apkPath || !fs.existsSync(t.apkPath)) {
+    return res.status(404).json({ error: 'APK 不存在或尚未构建成功' });
+  }
+  try {
+    const serial = req.body && req.body.serial;
+    const out = await adb.installApk(t.apkPath, serial);
+    res.json({ ok: true, output: out });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // 服务信息(SDK 是否就绪)
