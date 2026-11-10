@@ -129,10 +129,14 @@ async function runTask(taskId) {
     }
 
     // 6. Gradle 打包
-    const gradleTask = task.buildType === 'release' ? 'assembleRelease' : 'assembleDebug';
-    store.update(taskId, { status: 'building', message: `执行 gradlew ${gradleTask} ...` });
-    log.line(`开始 Gradle 构建: ${gradleTask}`);
-    const result = await runGradle(projDir, gradlewName, gradleTask, log);
+    // Release 构建跳过 lintVital 任务:它会临时下载 lint-gradle 依赖,离线/弱网环境会构建失败,且对离线打包无价值
+    const isRelease = task.buildType === 'release';
+    const gradleTask = isRelease ? 'assembleRelease' : 'assembleDebug';
+    const gradleArgs = [gradleTask];
+    if (isRelease) gradleArgs.push('-x', 'lintVitalAnalyzeRelease', '-x', 'lintVitalRelease');
+    store.update(taskId, { status: 'building', message: `执行 gradlew ${gradleArgs.join(' ')} ...` });
+    log.line(`开始 Gradle 构建: ${gradleArgs.join(' ')}`);
+    const result = await runGradle(projDir, gradlewName, gradleArgs, log);
     if (result.error) throw new Error('Gradle 启动失败: ' + result.error);
     if (result.code !== 0) throw new Error(`Gradle 构建失败(exit ${result.code}),详见构建日志`);
 
@@ -184,7 +188,7 @@ function cleanupIntermediates(tdir, log) {
   }
 }
 
-function runGradle(projDir, gradlewName, gradleTask, log) {
+function runGradle(projDir, gradlewName, gradleArgs, log) {
   return new Promise((resolve) => {
     const gradlew = path.join(projDir, gradlewName);
     const isWin = process.platform === 'win32';
@@ -196,8 +200,8 @@ function runGradle(projDir, gradlewName, gradleTask, log) {
       }
     }
     const child = isWin
-      ? spawn('cmd.exe', ['/c', gradlew, gradleTask], { cwd: projDir })
-      : spawn(gradlew, [gradleTask], { cwd: projDir, env: process.env });
+      ? spawn('cmd.exe', ['/c', gradlew, ...gradleArgs], { cwd: projDir })
+      : spawn(gradlew, gradleArgs, { cwd: projDir, env: process.env });
     const timer = setTimeout(() => {
       log.line('构建超时,强制终止');
       child.kill('SIGKILL');
