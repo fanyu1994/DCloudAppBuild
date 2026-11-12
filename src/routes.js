@@ -95,9 +95,15 @@ router.post('/upload', upload.single('file'), (req, res) => {
   res.status(201).json(publicView(store.get(task.id)));
 });
 
-// 任务列表
+// 任务列表(按创建时间倒序,支持分页:?page=&size=)
 router.get('/tasks', (req, res) => {
-  res.json(store.all().map(publicView));
+  const all = store.all().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map(publicView);
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const size = Math.min(100, Math.max(1, parseInt(req.query.size, 10) || 20));
+  const total = all.length;
+  const totalPages = Math.max(1, Math.ceil(total / size));
+  const start = (page - 1) * size;
+  res.json({ data: all.slice(start, start + size), total, page, size, totalPages });
 });
 
 // 任务详情
