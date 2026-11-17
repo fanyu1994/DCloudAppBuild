@@ -8,7 +8,7 @@
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f3f5f7; color: #2c3e50; min-height: 100vh; }
-  .container { max-width: 960px; margin: 0 auto; padding: 24px 16px 60px; }
+  .container { width: 80vw; max-width: 80vw; margin: 0 auto; padding: 24px 0 60px; }
   header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; }
   h1 { font-size: 22px; }
   header .hint { color: #8a94a6; font-size: 13px; }
@@ -30,9 +30,11 @@
   .progress { height: 6px; background: #ebecf0; border-radius: 3px; margin-top: 12px; overflow: hidden; display: none; }
   .progress i { display: block; height: 100%; width: 0; background: #0052cc; transition: width .2s; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #ebecf0; white-space: nowrap; }
+  th, td { text-align: center; padding: 10px 8px; border-bottom: 1px solid #ebecf0; white-space: nowrap; }
   th { color: #6b778c; font-weight: 500; font-size: 12px; }
   td.name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+  td.desc { width: 34%; padding-left: 16px; padding-right: 16px; }
+  .desc-text { max-width: 520px; white-space: normal; word-break: break-word; line-height: 1.6; }
   .machine { display: inline-block; max-width: 150px; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
   .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; }
   .badge.queued { background: #ebecf0; color: #42526e; }
@@ -41,7 +43,8 @@
   .badge.success { background: #e3fcef; color: #006644; }
   .badge.failed { background: #ffebe6; color: #bf2600; }
   @keyframes blink { 50% { opacity: .15; } }
-  .ops a, .ops button { margin-right: 8px; }
+  .ops { display: flex; justify-content: center; align-items: center; gap: 8px; }
+  .ops a, .ops button { margin-right: 0; }
   .empty { text-align: center; color: #97a0af; padding: 30px 0; font-size: 13px; }
   .log-mask { position: fixed; inset: 0; background: rgba(9,30,66,.5); display: none; align-items: center; justify-content: center; z-index: 10; }
   .log-box { background: #fff; width: min(860px, 92vw); max-height: 82vh; border-radius: 10px; display: flex; flex-direction: column; overflow: hidden; }
@@ -52,6 +55,18 @@
   .pager .hint { margin-right: auto; }
   .pager button { min-width: 30px; }
   .pager button.active { background: #0052cc; color: #fff; border-color: #0052cc; }
+  .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .card-head h2 { margin-bottom: 0; }
+  input[type=checkbox] { width: 14px; height: 14px; cursor: pointer; accent-color: #0052cc; vertical-align: middle; }
+  textarea { width: 100%; margin-top: 12px; min-height: 62px; border: 1px solid #dfe1e6; border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; color: #2c3e50; resize: vertical; }
+  textarea:focus { outline: none; border-color: #4c9aff; }
+  .remark-box { position: relative; margin-top: 12px; }
+  .remark-box textarea { margin-top: 0; padding-right: 58px; }
+  .remark-box .counter { position: absolute; right: 10px; bottom: 8px; font-size: 12px; color: #97a0af; pointer-events: none; }
+  .detail { padding: 16px; font-size: 13px; overflow: auto; max-height: 72vh; }
+  .detail dl { display: grid; grid-template-columns: 84px 1fr; gap: 10px 12px; align-items: start; }
+  .detail dt { color: #6b778c; }
+  .detail dd { color: #2c3e50; word-break: break-all; white-space: pre-wrap; }
 </style>
 </head>
 <body>
@@ -72,14 +87,6 @@
         <input type="file" id="fileInput" accept=".zip">
         <span id="fileName">点击选择或拖拽 ZIP 文件到此处</span>
       </label>
-      <label>资源类型
-        <select id="typeSel">
-          <option value="auto">自动识别</option>
-          <option value="hbx">HBuilderX 本地打包资源</option>
-          <option value="cli">CLI 构建资源</option>
-          <option value="h5plus">5+App 项目</option>
-        </select>
-      </label>
       <label>构建类型
         <select id="buildTypeSel">
           <option value="debug">Debug</option>
@@ -88,14 +95,22 @@
       </label>
       <button class="btn" id="uploadBtn">开始构建</button>
     </div>
+    <div class="remark-box">
+      <textarea id="remarkInput" maxlength="200" placeholder="本次构建说明(可选),例如:修复登录问题,给测试同事验证"></textarea>
+      <span class="counter" id="remarkCount">0/200</span>
+    </div>
     <div class="progress" id="progress"><i></i></div>
   </div>
 
   <div class="card">
-    <h2>构建任务</h2>
+    <div class="card-head">
+      <h2>构建任务</h2>
+      <span style="flex:1"></span>
+      <button class="btn sm ghost" id="batchDelBtn" disabled onclick="deleteSelected()">批量删除</button>
+    </div>
     <table>
       <thead>
-        <tr><th>时间</th><th>文件</th><th>类型</th><th>appid</th><th>构建</th><th>状态</th><th>操作</th></tr>
+        <tr><th style="width:34px"><input type="checkbox" id="checkAll" title="全选本页" onchange="toggleAll(this.checked)"></th><th>时间</th><th>文件</th><th>构建</th><th>状态</th><th>描述</th><th>操作</th></tr>
       </thead>
       <tbody id="taskBody"><tr><td colspan="7" class="empty">暂无任务</td></tr></tbody>
     </table>
@@ -122,6 +137,13 @@
       <div class="msg" id="adbMsg"></div>
       <style>#adbMask input { height:32px;border:1px solid #dfe1e6;border-radius:6px;padding:0 10px;font-size:13px; }</style>
     </div>
+  </div>
+</div>
+
+<div class="log-mask" id="detailMask">
+  <div class="log-box" style="max-width:560px">
+    <div class="log-head"><span>任务详情</span><button class="btn sm ghost" onclick="closeDetail()">关闭</button></div>
+    <div class="detail" id="detailBody"></div>
   </div>
 </div>
 
@@ -160,6 +182,12 @@ fileBox.addEventListener('drop', e => {
   if (e.dataTransfer.files.length) { fileInput.files = e.dataTransfer.files; fileInput.dispatchEvent(new Event('change')); }
 });
 
+// 构建说明字数统计(最多 200 字)
+const remarkInput = $('remarkInput');
+function syncRemarkCount() { $('remarkCount').textContent = remarkInput.value.length + '/200'; }
+remarkInput.addEventListener('input', syncRemarkCount);
+syncRemarkCount();
+
 // 上传(带进度)
 $('uploadBtn').addEventListener('click', () => {
   const file = fileInput.files[0];
@@ -167,8 +195,8 @@ $('uploadBtn').addEventListener('click', () => {
   if (!/\.zip$/i.test(file.name)) return alert('仅支持 .zip 文件');
   const fd = new FormData();
   fd.append('file', file);
-  fd.append('type', $('typeSel').value);
   fd.append('buildType', $('buildTypeSel').value);
+  fd.append('remark', $('remarkInput').value.trim());
   const xhr = new XMLHttpRequest();
   const bar = $('progress'), fill = bar.querySelector('i');
   bar.style.display = 'block'; fill.style.width = '0';
@@ -179,6 +207,8 @@ $('uploadBtn').addEventListener('click', () => {
     setTimeout(() => { bar.style.display = 'none'; }, 600);
     if (xhr.status === 201) {
       fileInput.value = ''; fileName.textContent = '点击选择或拖拽 ZIP 文件到此处';
+      $('remarkInput').value = '';
+      syncRemarkCount();
       loadTasks();
     } else {
       try { alert('上传失败: ' + JSON.parse(xhr.responseText).error); } catch { alert('上传失败(' + xhr.status + ')'); }
@@ -189,36 +219,96 @@ $('uploadBtn').addEventListener('click', () => {
   xhr.send(fd);
 });
 
-// 任务列表(带分页)
+// 任务列表(带分页 + 批量选择)
 let currentPage = 1;
 const PAGE_SIZE = 20;
+const selected = new Set();
 
 async function loadTasks(page) {
   if (page) currentPage = page;
   let resp;
   try { resp = await (await fetch(`/api/tasks?page=${currentPage}&size=${PAGE_SIZE}`)).json(); } catch { return; }
   const tasks = resp.data || [];
+  // 删除末页最后一条后自动回退一页
+  if (!tasks.length && currentPage > 1) { currentPage--; return loadTasks(); }
   const body = $('taskBody');
-  if (!tasks.length) { body.innerHTML = '<tr><td colspan="7" class="empty">暂无任务</td></tr>'; $('pager').innerHTML = ''; return; }
+  if (!tasks.length) {
+    body.innerHTML = '<tr><td colspan="7" class="empty">暂无任务</td></tr>';
+    $('pager').innerHTML = '';
+    syncSelectionUI();
+    return;
+  }
   body.innerHTML = tasks.map(t => {
     const time = new Date(t.createdAt).toLocaleString('zh-CN', { hour12: false });
-    const type = t.type ? (TYPE_NAMES[t.type] || t.type) : (t.typeOverride === 'auto' ? '自动识别' : TYPE_NAMES[t.typeOverride]);
-    let ops = `<button class="btn sm ghost" onclick="showLog('${t.id}')">日志</button>`;
+    let ops = `<button class="btn sm ghost" onclick="showDetail('${t.id}')">详情</button>`;
+    ops += `<button class="btn sm ghost" onclick="showLog('${t.id}')">日志</button>`;
     if (t.status === 'success') {
       ops += `<a href="/api/tasks/${t.id}/download"><button class="btn sm">下载 APK</button></a>`;
       ops += `<button class="btn sm ghost" data-install="${t.id}" onclick="installApk('${t.id}', this)">安装</button>`;
     }
     return `<tr>
+      <td><input type="checkbox" class="row-check" data-id="${t.id}" onchange="toggleRow(this)"></td>
       <td>${time}</td>
       <td class="name" title="${esc(t.originalName)}">${esc(t.originalName)}<div class="msg">${esc(t.message || '')}</div></td>
-      <td>${type}</td>
-      <td>${esc(t.appid || '-')}</td>
       <td>${t.buildType}</td>
       <td><span class="badge ${t.status}">${STATUS_NAMES[t.status] || t.status}</span></td>
+      <td class="desc"><div class="desc-text" title="${esc(t.remark || '')}">${esc(t.remark || '-')}</div></td>
       <td class="ops">${ops}</td>
     </tr>`;
   }).join('');
   renderPager(resp.total, resp.page, resp.totalPages);
+  syncSelectionUI();
+}
+
+// 勾选状态:跨页保留,刷新列表后按 selected 回填
+function toggleRow(cb) {
+  if (cb.checked) selected.add(cb.dataset.id); else selected.delete(cb.dataset.id);
+  syncSelectionUI();
+}
+
+function toggleAll(checked) {
+  document.querySelectorAll('.row-check').forEach(cb => {
+    if (checked) selected.add(cb.dataset.id); else selected.delete(cb.dataset.id);
+  });
+  syncSelectionUI();
+}
+
+function syncSelectionUI() {
+  const boxes = Array.from(document.querySelectorAll('.row-check'));
+  boxes.forEach(cb => { cb.checked = selected.has(cb.dataset.id); });
+  const allChecked = boxes.length > 0 && boxes.every(cb => cb.checked);
+  const all = $('checkAll');
+  if (all) {
+    all.checked = allChecked;
+    all.indeterminate = !allChecked && boxes.some(cb => cb.checked);
+  }
+  const btn = $('batchDelBtn');
+  if (btn) {
+    btn.disabled = selected.size === 0;
+    btn.textContent = selected.size ? `删除选中(${selected.size})` : '批量删除';
+  }
+}
+
+// 批量删除任务(同时删除日志与 APK,不可恢复)
+async function deleteSelected() {
+  if (!selected.size) return;
+  if (!confirm(`确定删除选中的 ${selected.size} 个任务?\n其构建日志与 APK 文件会一并删除,且不可恢复。`)) return;
+  const btn = $('batchDelBtn');
+  btn.disabled = true;
+  try {
+    const resp = await fetch('/api/tasks', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: Array.from(selected) }),
+    });
+    const r = await resp.json();
+    if (!resp.ok) { alert('删除失败: ' + (r.error || resp.status)); syncSelectionUI(); return; }
+    selected.clear();
+    await loadTasks();
+  } catch (e) {
+    alert('删除失败: ' + e.message);
+    syncSelectionUI();
+  }
 }
 
 function renderPager(total, page, totalPages) {
@@ -255,6 +345,49 @@ async function refreshLog() {
 }
 function closeLog() { currentLogTask = null; $('logMask').style.display = 'none'; }
 $('logMask').addEventListener('click', e => { if (e.target === $('logMask')) closeLog(); });
+
+// 任务详情弹窗
+function fmtTime(ts) { return ts ? new Date(ts).toLocaleString('zh-CN', { hour12: false }) : '-'; }
+
+async function showDetail(id) {
+  const box = $('detailBody');
+  $('detailMask').style.display = 'flex';
+  box.innerHTML = '<div class="empty">加载中...</div>';
+  let t;
+  try {
+    t = await (await fetch('/api/tasks/' + id)).json();
+  } catch (e) {
+    box.innerHTML = '<div class="empty">加载失败: ' + esc(e.message) + '</div>';
+    return;
+  }
+  if (t.error) { box.innerHTML = '<div class="empty">' + esc(t.error) + '</div>'; return; }
+  const dur = t.finishedAt && t.createdAt ? Math.max(0, Math.round((t.finishedAt - t.createdAt) / 1000)) + ' 秒' : '-';
+  const machine = t.machine
+    ? `${t.machine.host} / ${t.machine.platform} / ${t.machine.cpu} / ${t.machine.cores} 核 / ${t.machine.memGb} GB`
+    : '-';
+  const uploader = t.uploader ? `${t.uploader.ip || '-'} (${t.uploader.os || '未知'})` : '-';
+  const rows = [
+    ['任务 ID', t.id],
+    ['文件', t.originalName],
+    ['大小', t.size ? fmtSize(t.size) : '-'],
+    ['资源类型', t.type ? (TYPE_NAMES[t.type] || t.type) : '未识别'],
+    ['appid', t.appid || '-'],
+    ['构建类型', t.buildType],
+    ['状态', STATUS_NAMES[t.status] || t.status],
+    ['构建说明', t.remark || '-'],
+    ['提示信息', t.message || '-'],
+    ['上传者', uploader],
+    ['构建机器', machine],
+    ['创建时间', fmtTime(t.createdAt)],
+    ['完成时间', fmtTime(t.finishedAt)],
+    ['耗时', dur],
+    ['APK 文件', t.apkName || '-'],
+  ];
+  box.innerHTML = '<dl>' + rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('') + '</dl>';
+}
+
+function closeDetail() { $('detailMask').style.display = 'none'; }
+$('detailMask').addEventListener('click', e => { if (e.target === $('detailMask')) closeDetail(); });
 
 // 安装 APK 到 USB 调试设备(adb 服务跑在宿主机,容器通过 TCP 连接)
 async function adbPair() {

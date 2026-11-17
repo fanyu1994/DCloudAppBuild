@@ -48,6 +48,7 @@ function publicView(t) {
     appid: t.appid,
     status: t.status,
     message: t.message,
+    remark: t.remark || '',
     apkName: t.apkName,
     machine: t.machine,
     uploader: t.uploader,
@@ -68,12 +69,18 @@ router.post('/upload', upload.single('file'), (req, res) => {
   const originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
   const typeOverride = VALID_TYPES.has(req.body.type) ? req.body.type : 'auto';
   const buildType = req.body.buildType === 'release' ? 'release' : 'debug';
+  const remark = String(req.body.remark || '').trim();
+  if (remark.length > 200) {
+    cleanup();
+    return res.status(400).json({ error: '构建说明最多 200 字' });
+  }
 
   const task = store.create({
     originalName,
     size: req.file.size,
     typeOverride,
     buildType,
+    remark,
     uploader: {
       ip: clientIp(req),
       os: detectOs(req.headers['user-agent'] || ''),
@@ -104,6 +111,31 @@ router.get('/tasks', (req, res) => {
   const totalPages = Math.max(1, Math.ceil(total / size));
   const start = (page - 1) * size;
   res.json({ data: all.slice(start, start + size), total, page, size, totalPages });
+});
+
+const ACTIVE_STATUS = ['queued', 'preparing', 'building'];
+
+// 批量删除任务(同时删除任务目录下的日志与 APK)
+router.delete('/tasks', (req, res) => {
+  const raw = req.body && req.body.ids;
+  const ids = Array.isArray(raw) ? [...new Set(raw.filter((x) => typeof x === 'string' && x))] : [];
+  if (!ids.length) return res.status(400).json({ error: '请选择要删除的任务' });
+  if (ids.length > 200) return res.status(400).json({ error: '单次最多删除 200 个任务' });
+
+  const active = ids.map((id) => store.get(id)).filter((t) => t && ACTIVE_STATUS.includes(t.status));
+  if (active.length) {
+    return res.status(409).json({ error: `有 ${active.length} 个任务正在构建,请等待完成后再删除` });
+  }
+
+  const removed = store.removeMany(ids);
+  for (const t of removed) {
+    try {
+      fs.rmSync(t.dir, { recursive: true, force: true });
+    } catch {
+      // 目录删除失败不影响任务记录已移除,忽略即可
+    }
+  }
+  res.json({ deleted: removed.map((t) => t.id) });
 });
 
 // 任务详情

@@ -99,4 +99,15 @@ function all() {
   return tasks;
 }
 
-module.exports = { load, create, get, update, all };
+// 批量移除任务记录,返回被移除的记录(供调用方清理任务目录)
+function removeMany(ids) {
+  sync();
+  const set = new Set(ids);
+  const removed = tasks.filter((t) => set.has(t.id));
+  if (!removed.length) return [];
+  tasks = tasks.filter((t) => !set.has(t.id));
+  save();
+  return removed;
+}
+
+module.exports = { load, create, get, update, all, removeMany };

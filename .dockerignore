@@ -10,3 +10,6 @@ sdk
 .env.*
 *.log
 .DS_Store
+
+# 误放在 public 下的 SDK 工程不应进入镜像
+public/HBuilder-Integrate-AS

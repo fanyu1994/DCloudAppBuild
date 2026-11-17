@@ -1,5 +1,13 @@
 tasks/
+uploads/
 node_modules/
-package-lock.json
 *.local
 .DS_Store
+
+# DCloud 离线 SDK 工程(含签名文件,不可入库)
+sdk/
+public/HBuilder-Integrate-AS/
+
+# 环境变量
+.env
+.env.*
