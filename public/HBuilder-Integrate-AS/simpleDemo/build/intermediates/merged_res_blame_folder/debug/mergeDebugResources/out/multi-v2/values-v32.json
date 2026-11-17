@@ -1,0 +1,20 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.android.simple.simpleDemo-mergeDebugResources-14:/values-v32/values-v32.xml",
+            "map": [
+                {
+                    "source": "/Users/fanyu/.gradle/caches/8.11.1/transforms/6b245c04587814163f328692eec5f1b3/transformed/jetified-lib.5plus.base-release/res/values-v32/values-v32.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "100",
+                        "endLines": "7",
+                        "endColumns": "12",
+                        "endOffsets": "469"
+                    }
+                }
+            ]
+        }
+    ]
+}
